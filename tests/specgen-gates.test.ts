@@ -379,7 +379,10 @@ test('generation freshness check rejects stale schemas and config without writin
 // 2026-11-19, budgets switch from bytes to tokens with no change to the
 // surface: generated 109,068 B is 24,860 tokens, curated 29,980 B is 7,123
 // tokens. The token budgets keep about the headroom the byte budgets had.
-const GENERATED_SURFACE_TOKEN_BUDGET = 25_000;
+// 2026-11-19, every list follows one paging contract: the 17 lists the API
+// returns whole gain limit and cursor, net of shorter shared descriptions:
+// generated 24,860 to 25,301 tokens (+441), curated 7,123 to 7,115.
+const GENERATED_SURFACE_TOKEN_BUDGET = 25_400;
 const CURATED_SURFACE_TOKEN_BUDGET = 7_150;
 // No one argument description may crowd the surface. The cap was 400 B; the
 // longest description on 2026-11-19 is 94 tokens (385 B). Units for every

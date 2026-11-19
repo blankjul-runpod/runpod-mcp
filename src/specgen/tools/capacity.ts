@@ -7,7 +7,7 @@
 
 import type { ToolContext } from '../context.js';
 import type { CuratedTool } from '../types.js';
-import { listPaginationProperties, capList } from '../pagination.js';
+import { listPaginationProperties, pageInMemory } from '../pagination.js';
 import { badRequest, ok, runTool } from './util.js';
 import { readOnly } from './annotations.js';
 
@@ -220,7 +220,8 @@ async function matrixMode(ctx: ToolContext, query: CapacityQuery) {
     }),
     query.includeUnavailable
   );
-  return ok(capList(ranked, query.pageOpts));
+  const { page, pagination } = pageInMemory(ranked, query.pageOpts);
+  return ok({ gpus: page, pagination });
 }
 
 interface ProbeRow {
@@ -326,10 +327,11 @@ async function probeMode(
     }),
     query.includeUnavailable
   );
-  return ok(
-    capList(ranked, query.pageOpts, {
-      probedCudaVersions: versions,
-      ...(Object.keys(probeErrors).length > 0 ? { probeErrors } : {}),
-    })
-  );
+  const { page, pagination } = pageInMemory(ranked, query.pageOpts);
+  return ok({
+    probedCudaVersions: versions,
+    ...(Object.keys(probeErrors).length > 0 ? { probeErrors } : {}),
+    gpus: page,
+    pagination,
+  });
 }

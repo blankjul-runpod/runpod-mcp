@@ -4,7 +4,7 @@
 // from the official MCP server (Apache-2.0, runpod/runpod-mcp).
 
 import type { CuratedTool } from '../types.js';
-import { listPaginationProperties, capList } from '../pagination.js';
+import { listPaginationProperties, pageInMemory } from '../pagination.js';
 import type { ToolResult } from '../dispatch.js';
 import { badRequest, ok, runTool } from './util.js';
 import { readOnly, write } from './annotations.js';
@@ -316,12 +316,8 @@ export const listHubRepos: CuratedTool = {
           : null,
       }));
 
-      return ok(
-        capList(result, {
-          limit: args.limit as number | undefined,
-          cursor: args.cursor as string | undefined,
-        })
-      );
+      const { page, pagination } = pageInMemory(result, args);
+      return ok({ repos: page, pagination });
     }),
 };
 

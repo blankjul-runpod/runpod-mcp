@@ -4,6 +4,7 @@ import type {
   GeneratedToolParam,
   ToolAnnotations,
 } from '#src/specgen/generated/tools.gen';
+import { listPaginationProperties } from '#src/specgen/pagination';
 import { titleFromName } from '#src/specgen/titles';
 import { compactDescription, type OperationNameLookup } from './prose.js';
 
@@ -41,12 +42,17 @@ interface RequestBody {
   required?: boolean;
   content?: Record<string, { schema?: unknown }>;
 }
+interface Response {
+  $ref?: string;
+  content?: Record<string, { schema?: unknown }>;
+}
 interface Operation {
   operationId: string;
   summary?: string;
   description?: string;
   parameters?: Parameter[];
   requestBody?: RequestBody;
+  responses?: Record<string, Response>;
 }
 const HTTP_METHODS = ['get', 'put', 'post', 'delete', 'patch'] as const;
 type PathItem = Partial<Record<(typeof HTTP_METHODS)[number], Operation>> & {
@@ -58,6 +64,7 @@ export interface SpecDocument {
     schemas?: Record<string, unknown>;
     parameters?: Record<string, Parameter>;
     requestBodies?: Record<string, RequestBody>;
+    responses?: Record<string, Response>;
   };
 }
 
@@ -395,6 +402,77 @@ function operationNames(
   return (method, path) => names.get(`${method} ${path}`);
 }
 
+// The array properties a schema carries, through $ref and allOf.
+function arrayProperties(
+  schema: unknown,
+  spec: SpecDocument,
+  depth = 0
+): string[] {
+  if (!schema || typeof schema !== 'object' || depth > 8) return [];
+  const s = schema as Record<string, unknown>;
+  if (typeof s.$ref === 'string')
+    return arrayProperties(
+      spec.components?.schemas?.[pointerName(s.$ref, SCHEMA_PREFIX)],
+      spec,
+      depth + 1
+    );
+  const isArray = (property: unknown): boolean => {
+    const p = property as Record<string, unknown>;
+    if (p?.type === 'array') return true;
+    if (typeof p?.$ref !== 'string') return false;
+    const target = spec.components?.schemas?.[
+      pointerName(p.$ref, SCHEMA_PREFIX)
+    ] as Record<string, unknown> | undefined;
+    return target?.type === 'array';
+  };
+  return [
+    ...((s.allOf as unknown[] | undefined) ?? []).flatMap((part) =>
+      arrayProperties(part, spec, depth + 1)
+    ),
+    ...Object.entries((s.properties ?? {}) as Record<string, unknown>)
+      .filter(([, property]) => isArray(property))
+      .map(([key]) => key),
+  ];
+}
+
+// Every list operation pages through the shared list contract
+// (src/specgen/pagination.ts): the API's own limit/cursor when it has them,
+// otherwise dispatch pages the response. A list whose rows cannot be found
+// fails generation, so a spec resync cannot add an unpaged list unnoticed.
+function listShape(
+  method: string,
+  op: Operation,
+  spec: SpecDocument,
+  params: GeneratedToolParam[]
+): GeneratedTool['list'] {
+  if (method !== 'get' || !op.operationId.startsWith('list')) return undefined;
+  let response = op.responses?.['200'];
+  if (!response) return undefined;
+  if (response.$ref)
+    response =
+      spec.components?.responses?.[
+        pointerName(response.$ref, '#/components/responses/')
+      ];
+  const rows = arrayProperties(
+    response?.content?.['application/json']?.schema,
+    spec
+  );
+  if (rows.length !== 1)
+    throw new Error(
+      `List operation ${op.operationId} needs exactly one array of rows in its 200 response, found ${rows.length}`
+    );
+  return {
+    rows: rows[0],
+    paged: params.some((p) => p.name === 'cursor') ? 'server' : 'memory',
+  };
+}
+
+// The API's own page-size defaults (1000 on most lists) no longer apply: the
+// limit argument states the shared default.
+const API_LIMIT_DEFAULT = /;?\s*an omitted `limit` defaults to \d+[^.]*\./g;
+const API_NO_PAGINATION =
+  /\s*Cursor pagination is not yet supported here;.*?\)\./g;
+
 function buildTool(
   path: string,
   method: string,
@@ -434,6 +512,8 @@ function buildTool(
       ...(param.explode === false ? { explode: false as const } : {}),
     });
   }
+  const list = listShape(method, op, spec, params);
+  if (list) Object.assign(properties, listPaginationProperties);
   const requestBody =
     op.requestBody &&
     resolveComponent(
@@ -478,6 +558,8 @@ function buildTool(
           .filter(Boolean)
           .join('. ')
           .replaceAll(/\s+/g, ' ')
+          .replace(list ? API_LIMIT_DEFAULT : /$^/, '.')
+          .replace(list ? API_NO_PAGINATION : /$^/, '')
           .trim()
       ),
     ...(config.directoryDescriptions?.[op.operationId]
@@ -494,6 +576,7 @@ function buildTool(
     ...(config.schemaOnDemand?.includes(op.operationId)
       ? { schemaOnDemand: true as const }
       : {}),
+    ...(list ? { list } : {}),
     inputSchema: {
       type: 'object',
       properties,

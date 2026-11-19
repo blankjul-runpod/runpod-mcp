@@ -5,6 +5,11 @@
 import type { RunpodClient } from '@runpod/typescript-api-sdk';
 import type { GeneratedTool } from './generated/tools.gen.js';
 import { restError } from './clients/rest-result.js';
+import {
+  clampListLimit,
+  pageInMemory,
+  serverPagination,
+} from './pagination.js';
 
 // A client caches tools/list when it connects. If the served surface changes
 // under a live session — a release, or a deployment alias moving — the client
@@ -144,6 +149,9 @@ export async function dispatchGeneratedTool(
       param.explode === false && Array.isArray(value) ? value.join(',') : value;
   }
 
+  // The API's own page size is 1000 on most lists; send the shared default.
+  if (tool.list?.paged === 'server') query.limit = clampListLimit(args.limit);
+
   const sent = tool.hasBody ? bodyAsSent(tool, args.body) : { body: args.body };
   if (!sent)
     return {
@@ -178,8 +186,33 @@ export async function dispatchGeneratedTool(
   return {
     ok: true,
     status: response.status,
-    payload: data ?? { status: response.status },
+    payload: tool.list
+      ? pagedList(data, tool.list, args)
+      : (data ?? { status: response.status }),
   };
+}
+
+// A list response in the shared list shape: the rows, the pagination block,
+// and any other fields the API returned beside them (a billing list's
+// metadata, a worker list's summary).
+function pagedList(
+  data: unknown,
+  list: NonNullable<GeneratedTool['list']>,
+  args: Record<string, unknown>
+): unknown {
+  const body = (data ?? {}) as Record<string, unknown>;
+  const rows = body[list.rows];
+  if (!Array.isArray(rows)) return data;
+  if (list.paged === 'server')
+    return {
+      ...body,
+      pagination: serverPagination(
+        body.pagination as Parameters<typeof serverPagination>[0],
+        rows.length
+      ),
+    };
+  const { page, pagination } = pageInMemory(rows, args);
+  return { ...body, [list.rows]: page, pagination };
 }
 
 // The request body as dispatch sends it; null when it arrived as a string that

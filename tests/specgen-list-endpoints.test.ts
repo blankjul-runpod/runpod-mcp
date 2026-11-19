@@ -57,18 +57,20 @@ const fakeCtx = (
 test('drops env and requestUrls, keeps identifying fields', async () => {
   const result = await listEndpoints.handler(fakeCtx(2), {});
   assert.equal(result.ok, true);
-  const { items } = result.payload as { items: Array<Record<string, unknown>> };
-  assert.equal(items.length, 2);
-  assert.equal(items[0].id, 'ep_0');
-  assert.equal(items[0].image, 'runpod/worker:1');
-  assert.ok(!('env' in items[0]), 'env must be dropped');
-  assert.ok(!('requestUrls' in items[0]), 'requestUrls must be dropped');
+  const { endpoints } = result.payload as {
+    endpoints: Array<Record<string, unknown>>;
+  };
+  assert.equal(endpoints.length, 2);
+  assert.equal(endpoints[0].id, 'ep_0');
+  assert.equal(endpoints[0].image, 'runpod/worker:1');
+  assert.ok(!('env' in endpoints[0]), 'env must be dropped');
+  assert.ok(!('requestUrls' in endpoints[0]), 'requestUrls must be dropped');
   assert.ok(!JSON.stringify(result.payload).includes('do-not-echo'));
 });
 
 test('list overlays page on the server and return its cursor verbatim', async () => {
   for (const [tool, path, key] of [
-    [listEndpoints, '/v2/serverless', 'items'],
+    [listEndpoints, '/v2/serverless', 'endpoints'],
     [listTemplates, '/v2/templates', 'templates'],
   ] as const) {
     const calls: Call[] = [];
@@ -116,32 +118,29 @@ test('server page query caps the limit and drops empty cursors', async () => {
   });
 });
 
-test('capList survives limit 0, junk cursors, and out-of-range offsets', async () => {
-  const { capList, MAX_LIST_LIMIT } = await import(
+test('pageInMemory survives limit 0, junk cursors, and out-of-range offsets', async () => {
+  const { pageInMemory, MAX_LIST_LIMIT } = await import(
     '../src/specgen/pagination.js'
   );
   const items = Array.from({ length: 5 }, (_, i) => i);
 
-  const zero = capList(items, { limit: 0 });
-  assert.ok(
-    (zero.items as unknown[]).length > 0,
-    'limit 0 must not produce a stuck pager'
-  );
+  const zero = pageInMemory(items, { limit: 0 });
+  assert.ok(zero.page.length > 0, 'limit 0 must not produce a stuck pager');
 
-  const junk = capList(items, { cursor: '!!not-base64!!' });
-  assert.equal((junk.items as unknown[]).length, 5);
+  const junk = pageInMemory(items, { cursor: '!!not-base64!!' });
+  assert.equal(junk.page.length, 5);
 
-  const past = capList(items, {
+  const past = pageInMemory(items, {
     cursor: Buffer.from('999').toString('base64'),
   });
-  assert.equal((past.items as unknown[]).length, 0);
-  assert.equal((past.pagination as { nextCursor: unknown }).nextCursor, null);
+  assert.equal(past.page.length, 0);
+  assert.equal(past.pagination.nextCursor, null);
 
-  const huge = capList(
+  const huge = pageInMemory(
     Array.from({ length: 500 }, (_, i) => i),
     { limit: 10_000 }
   );
-  assert.equal((huge.items as unknown[]).length, MAX_LIST_LIMIT);
+  assert.equal(huge.page.length, MAX_LIST_LIMIT);
 });
 
 test('list overlays report malformed upstream collections as gateway errors', async () => {

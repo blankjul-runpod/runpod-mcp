@@ -51,7 +51,7 @@ function mockGraphql(t: { mock: { method: typeof test.mock.method } }) {
 }
 
 function rowsOf(payload: unknown): Array<Record<string, unknown>> {
-  return (payload as { items: Array<Record<string, unknown>> }).items;
+  return (payload as { gpus: Array<Record<string, unknown>> }).gpus;
 }
 
 test('matrix mode returns each cloud price next to the cheapest one', async (t) => {

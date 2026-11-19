@@ -58,7 +58,7 @@ export const listEndpoints: CuratedTool = {
       ok: true,
       status: response.status,
       payload: {
-        items: trimmed,
+        endpoints: trimmed,
         pagination: serverPagination(data.pagination, trimmed.length),
       },
     };

@@ -4,7 +4,7 @@
 // the official MCP server (Apache-2.0, runpod/runpod-mcp).
 
 import type { CuratedTool } from '../types.js';
-import { listPaginationProperties, capList } from '../pagination.js';
+import { listPaginationProperties, pageInMemory } from '../pagination.js';
 import { ok, runTool } from './util.js';
 import { readOnly } from './annotations.js';
 
@@ -155,11 +155,7 @@ export const listPublicEndpoints: CuratedTool = {
         updatedAt: config.updatedAt,
       }));
 
-      return ok(
-        capList(result, {
-          limit: args.limit as number | undefined,
-          cursor: args.cursor as string | undefined,
-        })
-      );
+      const { page, pagination } = pageInMemory(result, args);
+      return ok({ endpoints: page, pagination });
     }),
 };

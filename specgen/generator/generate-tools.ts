@@ -4,7 +4,9 @@ import { isDeepStrictEqual } from 'node:util';
 import { parse } from 'yaml';
 import { generateTools, type GeneratorConfig } from './tools.js';
 
-const spec = parse(readFileSync('packages/typescript-api-sdk/spec/openapi.yaml', 'utf8'));
+const spec = parse(
+  readFileSync('packages/typescript-api-sdk/spec/openapi.yaml', 'utf8')
+);
 const config: GeneratorConfig =
   parse(readFileSync('specgen/generator-config.yaml', 'utf8')) ?? {};
 const tools = generateTools(spec, config);
@@ -56,6 +58,11 @@ export interface GeneratedTool {
   annotations: ToolAnnotations;
   /** Listed with its call shape only; describe-tool serves the full schema. */
   schemaOnDemand?: true;
+  /** A list: dispatch pages it through the shared list contract
+   *  (src/specgen/pagination.ts). \`rows\` is the response's array; \`server\`
+   *  when the API takes limit/cursor, \`memory\` when dispatch pages the whole
+   *  response. */
+  list?: { rows: string; paged: "server" | "memory" };
   inputSchema: Record<string, unknown>;
 }
 

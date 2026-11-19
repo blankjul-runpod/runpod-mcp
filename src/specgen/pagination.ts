@@ -1,26 +1,33 @@
-// List caps so a large account's response cannot exceed an LLM's context
-// window. Curated tools over a paginated v2 list endpoint (list-endpoints,
-// list-templates) pass the server's `limit`/`cursor` through with
-// serverPageQuery and return its `pagination` block via serverPagination.
-// Tools whose data has no server pagination (hub, public endpoints, capacity)
-// cap client-side with capList, whose cursors are offsets into one response.
+// One contract for every list tool, so a list response never outgrows an
+// agent's context and every list pages the same way:
+//
+//   in:  limit (1-100, default 20), cursor (the previous page's nextCursor)
+//   out: { <rows>, pagination: { returned, hasNextPage, nextCursor } }
+//
+// When the API pages (limit/cursor query parameters), the request carries the
+// capped limit and the server's cursor (serverPageQuery) and the response
+// carries the server's pagination block (serverPagination). When it does not,
+// the whole response is paged here (pageInMemory) with an offset cursor and
+// the same block. Generated list tools get this from dispatch (tool.list);
+// curated ones call these helpers. tests/specgen-lists.test.ts checks every
+// served list against this contract.
 
 export const DEFAULT_LIST_LIMIT = 20;
 export const MAX_LIST_LIMIT = 100;
 
-// JSON Schema fragments for the shared list parameters (spread into a curated
-// tool's inputSchema properties).
+// The shared list arguments (spread into a tool's inputSchema properties).
 export const listPaginationProperties = {
   limit: {
     type: 'integer',
     minimum: 1,
     maximum: MAX_LIST_LIMIT,
-    description: `Maximum number of items to return (default ${DEFAULT_LIST_LIMIT}, max ${MAX_LIST_LIMIT}). Use the returned nextCursor to fetch the next page.`,
+    default: DEFAULT_LIST_LIMIT,
+    description: `Rows per page, 1-${MAX_LIST_LIMIT} (default ${DEFAULT_LIST_LIMIT}).`,
   },
   cursor: {
     type: 'string',
     description:
-      'Opaque pagination cursor from a previous response (nextCursor). Omit to start from the beginning.',
+      'pagination.nextCursor from the previous page; omit for the first page.',
   },
 } as const;
 
@@ -87,38 +94,28 @@ export function encodeCursorOffset(offset: number): string {
   return Buffer.from(String(offset), 'utf8').toString('base64');
 }
 
-// Caps a list to `limit` items starting at `cursor`, returning an envelope
-// that tells the agent how much it is seeing and how to get the rest. `extra`
-// merges small aggregate sibling fields alongside items/pagination; reserved
-// keys in it are ignored so they cannot shadow the cap.
-export function capList(
-  items: unknown[],
-  options: { limit?: number; cursor?: string },
-  extra?: Record<string, unknown>
-): Record<string, unknown> {
-  const limit = clampListLimit(options.limit);
-  const offset = decodeCursorOffset(options.cursor);
-  const total = items.length;
+// One page of a list the API returned whole, with the same pagination block a
+// server-paged list returns. The cursor is an offset into `items`, so it is
+// only valid with the arguments that produced the list.
+export function pageInMemory<T>(
+  items: T[],
+  args: Record<string, unknown>
+): { page: T[]; pagination: Record<string, unknown> } {
+  const limit = clampListLimit(args.limit);
+  const offset = decodeCursorOffset(
+    typeof args.cursor === 'string' ? args.cursor : undefined
+  );
   const page = items.slice(offset, offset + limit);
-  const nextOffset = offset + page.length;
-  const hasMore = nextOffset < total;
-  const { items: _i, pagination: _p, ...safeExtra } = extra ?? {};
-  void _i;
-  void _p;
+  const next = offset + page.length;
+  const hasNextPage = next < items.length;
   return {
-    ...safeExtra,
-    items: page,
-    pagination: {
-      total,
-      returned: page.length,
-      offset,
-      truncated: hasMore,
-      nextCursor: hasMore ? encodeCursorOffset(nextOffset) : null,
-      ...(hasMore
-        ? {
-            note: `Showing ${page.length} of ${total}. Pass cursor=nextCursor to fetch more, or narrow the query with filters.`,
-          }
-        : {}),
-    },
+    page,
+    pagination: serverPagination(
+      {
+        hasNextPage,
+        nextCursor: hasNextPage ? encodeCursorOffset(next) : null,
+      },
+      page.length
+    ),
   };
 }
