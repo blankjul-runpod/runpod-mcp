@@ -128,3 +128,108 @@ test('an unpaged API list is paged here and keeps the fields beside its rows', a
   assert.equal(last.pagination.hasNextPage, false);
   assert.equal(last.pagination.nextCursor, null);
 });
+
+test('an empty success from a list answers with its status, not nothing', async () => {
+  const api = createRunpodClient({
+    apiKey: 'test',
+    fetch: async () => new Response(null, { status: 204 }),
+  });
+  const result = await dispatchGeneratedTool(api, tool('list-secrets'), {});
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.payload, { status: 204 });
+});
+
+// Every hand-written list answers in the shared shape: its rows under the
+// resource's key, and the pagination block with exactly these keys.
+test('every curated list answers with its rows and the shared pagination block', async () => {
+  const many = (make: (i: number) => object) =>
+    Array.from({ length: 25 }, (_, i) => make(i));
+  const ctx = {
+    sdk: {
+      // Like the API: returns `limit` rows and says more exist.
+      GET: async (
+        _path: string,
+        init: { params: { query: { limit: number } } }
+      ) => ({
+        data: {
+          endpoints: many((i) => ({ id: `ep${i}` })).slice(
+            0,
+            init.params.query.limit
+          ),
+          templates: many((i) => ({ id: `t${i}` })).slice(
+            0,
+            init.params.query.limit
+          ),
+          pagination: { hasNextPage: true, nextCursor: 'next' },
+        },
+        response: new Response(null, { status: 200 }),
+      }),
+    },
+    graphql: {
+      public: async () => ({
+        listings: many((i) => ({
+          id: `l${i}`,
+          repoOwner: 'o',
+          repoName: `r${i}`,
+        })),
+        allAiApiPublicConfigs: many((i) => ({
+          id: `pe${i}`,
+          aiApiId: `a${i}`,
+          modelName: `model-${i}`,
+          displayName: `Model ${i}`,
+          isLive: true,
+        })),
+        gpuTypes: many((i) => ({
+          id: `GPU ${i}`,
+          displayName: `GPU ${i}`,
+          memoryInGb: 24,
+          secureCloud: true,
+          communityCloud: false,
+          securePrice: 1,
+          communityPrice: null,
+          lowestPrice: {
+            stockStatus: 'Low',
+            uninterruptablePrice: 1,
+            gpuTypeCudaVersions: [
+              { cudaVersion: '13.2', availability: 'AVAILABLE' },
+            ],
+          },
+        })),
+      }),
+    },
+  } as never;
+  const rowsKey: Record<string, string> = {
+    'list-endpoints': 'endpoints',
+    'list-templates': 'templates',
+    'list-hub-repos': 'repos',
+    'list-public-endpoints': 'endpoints',
+    'list-guides': 'guides',
+    'get-capacity': 'gpus',
+  };
+  const curatedLists = curatedTools.filter(
+    (candidate) =>
+      candidate.name.startsWith('list-') || candidate.name === 'get-capacity'
+  );
+  assert.deepEqual(
+    curatedLists.map((candidate) => candidate.name).sort(),
+    Object.keys(rowsKey).sort(),
+    'a new curated list needs its rows key here'
+  );
+  for (const list of curatedLists) {
+    const result = await list.handler(ctx, {});
+    assert.equal(result.ok, true, list.name);
+    const payload = result.payload as Record<string, unknown> & {
+      pagination: Record<string, unknown>;
+    };
+    const rows = payload[rowsKey[list.name]];
+    assert.ok(Array.isArray(rows), `${list.name} rows`);
+    assert.equal(rows.length, DEFAULT_LIST_LIMIT, `${list.name} page size`);
+    assert.deepEqual(
+      Object.keys(payload.pagination).sort(),
+      ['hasNextPage', 'nextCursor', 'note', 'returned'],
+      `${list.name} pagination`
+    );
+    assert.equal(payload.pagination.hasNextPage, true, list.name);
+    assert.ok(!('items' in payload), `${list.name} still returns items`);
+  }
+});

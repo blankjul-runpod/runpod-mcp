@@ -4,7 +4,10 @@ import type {
   GeneratedToolParam,
   ToolAnnotations,
 } from '#src/specgen/generated/tools.gen';
-import { listPaginationProperties } from '#src/specgen/pagination';
+import {
+  listPaginationProperties,
+  MAX_LIST_LIMIT,
+} from '#src/specgen/pagination';
 import { titleFromName } from '#src/specgen/titles';
 import { compactDescription, type OperationNameLookup } from './prose.js';
 
@@ -441,6 +444,7 @@ function arrayProperties(
 // fails generation, so a spec resync cannot add an unpaged list unnoticed.
 function listShape(
   method: string,
+  pathItem: PathItem,
   op: Operation,
   spec: SpecDocument,
   params: GeneratedToolParam[]
@@ -460,6 +464,14 @@ function listShape(
   if (rows.length !== 1)
     throw new Error(
       `List operation ${op.operationId} needs exactly one array of rows in its 200 response, found ${rows.length}`
+    );
+  const apiMax = (
+    operationParameters(pathItem, op, spec).find((p) => p.name === 'limit')
+      ?.schema as { maximum?: number } | undefined
+  )?.maximum;
+  if (apiMax !== undefined && apiMax < MAX_LIST_LIMIT)
+    throw new Error(
+      `List operation ${op.operationId} caps limit at ${apiMax}, below the shared maximum ${MAX_LIST_LIMIT}`
     );
   return {
     rows: rows[0],
@@ -512,7 +524,7 @@ function buildTool(
       ...(param.explode === false ? { explode: false as const } : {}),
     });
   }
-  const list = listShape(method, op, spec, params);
+  const list = listShape(method, pathItem, op, spec, params);
   if (list) Object.assign(properties, listPaginationProperties);
   const requestBody =
     op.requestBody &&

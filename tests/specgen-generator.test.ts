@@ -479,3 +479,84 @@ test('a conditional without unevaluatedProperties is left in place', () => {
     schema
   );
 });
+
+// A list operation as the spec writes one: rows in one array, the API's own
+// limit and cursor, and the API's page-size default in the description.
+function listSpec(
+  rows: Record<string, unknown>,
+  limitMaximum = 1000
+): SpecDocument {
+  return {
+    paths: {
+      '/v2/things': {
+        get: {
+          operationId: 'listThings',
+          summary: 'List things',
+          description:
+            'Returns things, newest first, cursor-paginated; an omitted `limit` defaults to 1000. Follow `pagination.nextCursor` until `hasNextPage` is false.',
+          parameters: [
+            {
+              name: 'limit',
+              in: 'query',
+              schema: { type: 'integer', maximum: limitMaximum },
+            },
+            { name: 'cursor', in: 'query', schema: { type: 'string' } },
+          ],
+          responses: {
+            '200': {
+              content: {
+                'application/json': {
+                  schema: { type: 'object', properties: rows },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  } as SpecDocument;
+}
+
+test('a list operation is paged through the shared list contract', () => {
+  const [tool] = generateTools(
+    listSpec({
+      things: { type: 'array', items: { type: 'object' } },
+      pagination: { type: 'object' },
+    }),
+    {}
+  );
+  assert.deepEqual(tool.list, { rows: 'things', paged: 'server' });
+  const properties = tool.inputSchema.properties as Record<
+    string,
+    Record<string, unknown>
+  >;
+  assert.equal(properties.limit.maximum, 100);
+  assert.equal(properties.limit.default, 20);
+  assert.equal(properties.cursor.type, 'string');
+  assert.equal(
+    tool.description,
+    'List things. Returns things, newest first, cursor-paginated. Follow `pagination.nextCursor` until `hasNextPage` is false.'
+  );
+});
+
+test('a list operation the generator cannot page fails generation', () => {
+  assert.throws(
+    () => generateTools(listSpec({ pagination: { type: 'object' } }), {}),
+    /listThings needs exactly one array of rows .* found 0/
+  );
+  assert.throws(
+    () =>
+      generateTools(
+        listSpec({
+          things: { type: 'array' },
+          others: { type: 'array' },
+        }),
+        {}
+      ),
+    /found 2/
+  );
+  assert.throws(
+    () => generateTools(listSpec({ things: { type: 'array' } }, 50), {}),
+    /caps limit at 50, below the shared maximum 100/
+  );
+});

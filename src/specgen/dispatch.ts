@@ -187,7 +187,7 @@ export async function dispatchGeneratedTool(
     ok: true,
     status: response.status,
     payload: tool.list
-      ? pagedList(data, tool.list, args)
+      ? pagedList(data ?? { status: response.status }, tool.list, args)
       : (data ?? { status: response.status }),
   };
 }
