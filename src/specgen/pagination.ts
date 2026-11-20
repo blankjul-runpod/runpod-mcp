@@ -12,6 +12,7 @@
 
 import { createHash } from 'node:crypto';
 import { redactSecretEnv } from './redact.js';
+import { serializeResult } from './serialize.js';
 
 export const DEFAULT_LIST_LIMIT = 20;
 export const MAX_LIST_LIMIT = 100;
@@ -119,10 +120,22 @@ const changedBefore = (
     position > rows.length ||
     markOf(rows[position - 1]) !== mark);
 
+// A cursor is opaque: its JSON is masked before base64, so decoding it shows
+// noise, not fields. Readable, agents rebuilt cursors from the decoded fields
+// instead of copying them (seen with GLM-5.3 on compact results). Not a secret: the checksum and the
+// argument fingerprint below are what refuse a forged cursor.
+const CURSOR_MASK = createHash('sha256').update('runpod-mcp cursor').digest();
+export const maskCursorBytes = (bytes: Buffer): Buffer =>
+  Buffer.from(
+    bytes.map((byte, i) => byte ^ CURSOR_MASK[i % CURSOR_MASK.length])
+  );
+
 // The position, then a checksum of it: a cursor damaged anywhere (an agent
 // copying a long string wrong) is refused instead of read as another page.
 const encodeCursor = (position: Position): string => {
-  const body = Buffer.from(JSON.stringify(position)).toString('base64url');
+  const body = maskCursorBytes(Buffer.from(JSON.stringify(position))).toString(
+    'base64url'
+  );
   return `${CURSOR_PREFIX}${body}.${hash(body, 6)}`;
 };
 
@@ -149,7 +162,7 @@ function readCursor(
   if (!body || checksum !== hash(body, 6)) return INVALID_CURSOR;
   try {
     const position = JSON.parse(
-      Buffer.from(body, 'base64url').toString('utf8')
+      maskCursorBytes(Buffer.from(body, 'base64url')).toString('utf8')
     ) as Position;
     const count = (n: unknown) =>
       n === undefined || (Number.isInteger(n) && (n as number) >= 0);
@@ -175,9 +188,9 @@ export function cursorError(
 }
 
 // As server.ts sends a result: secret env values redacted (the placeholder
-// can be longer than the value), then indented JSON.
+// can be longer than the value), then serializeResult.
 const resultBytes = (value: unknown): number =>
-  Buffer.byteLength(JSON.stringify(redactSecretEnv(value), null, 2));
+  Buffer.byteLength(serializeResult(redactSecretEnv(value)));
 
 // The most rows from the front of `rows` whose page fits the budget; at
 // least one, so a single oversized row still moves the list on.

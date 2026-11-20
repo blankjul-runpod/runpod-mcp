@@ -18,7 +18,11 @@ export const LOG_STREAM_MAX_BYTES = 256 * 1024;
 // commonly take 2-3 s; when one deadline covered both, a maxWaitMs of 2000
 // failed as "did not respond" instead of returning a snapshot.
 export const LOG_STREAM_CONNECT_TIMEOUT_MS = 10_000;
-// Ceiling on the snapshot as the server serializes it (pretty-printed JSON).
+// Ceiling on the snapshot measured as indented JSON, an upper bound on the
+// compact text the server sends by default (src/specgen/serialize.ts): it
+// counts characters, and compact JSON would fit more lines under the same
+// count, adding tokens to dense scripts. The byte cap in docs/size-limits.md
+// will replace it.
 // MCP clients cap tool output — Claude Code at 25,000 tokens by default, which
 // a 56,178-character log snapshot exceeded — and an over-cap result is lost
 // to the agent, so the snapshot is cut to fit with `truncated: true` instead.

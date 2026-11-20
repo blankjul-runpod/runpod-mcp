@@ -38,6 +38,8 @@ Never use characters to stand in for tokens. Measured on log snapshots, one char
 
 Add a row when you add a limit.
 
+Tool results are compact JSON unless `MCP_PRETTY_RESPONSES=true` (`src/specgen/serialize.ts`). The page budget measures a page in the format sent. The log snapshot cap still measures indented JSON, an upper bound on the compact text sent: measured on compact text, the same 32,000 characters would hold about 30% more log lines and, for dense scripts, more tokens (a test log of mixed Japanese and rare CJK lines at the cap: 18,449 tokens indented, 21,347 measured compact). The byte cap below removes that difference.
+
 ## Follow-ups
 
 Log tools (`stream-pod-logs`, `stream-worker-logs`):

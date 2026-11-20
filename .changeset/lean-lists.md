@@ -23,3 +23,5 @@ Tokens per default call, measured with `@anthropic-ai/tokenizer` on realistic ro
 | `list-guides` (118 guides)                     | 21,040 | 3,178                            | 85%   |
 | `list-public-templates` (100 templates)        | 21,285 | 4,344                            | 80%   |
 | `list-pod-billing` (10 Pods, 30 daily buckets) | 18,222 | 1,311                            | 93%   |
+
+These were measured on indented JSON; with compact JSON results, also in this release, each is lower again, and a full page holds more rows.
