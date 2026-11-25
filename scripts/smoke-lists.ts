@@ -33,7 +33,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { createToolContext } from '#src/specgen/context';
 import { generatedTools } from '#src/specgen/generated/tools.gen';
-import { PAGE_BUDGET_BYTES } from '#src/specgen/pagination';
+import { pageBudgetBytes } from '#src/specgen/pagination';
 import { createSpecgenServer, curatedTools } from '#src/specgen/server';
 
 type Row = Record<string, unknown>;
@@ -183,9 +183,9 @@ async function walk(
       );
       return out;
     }
-    if (bytes > PAGE_BUDGET_BYTES && rows.length > 1)
+    if (bytes > pageBudgetBytes() && rows.length > 1)
       out.problems.push(
-        `${at}: ${bytes} B, over the ${PAGE_BUDGET_BYTES} B budget`
+        `${at}: ${bytes} B, over the ${pageBudgetBytes()} B budget`
       );
     if (page.returned !== rows.length)
       out.problems.push(

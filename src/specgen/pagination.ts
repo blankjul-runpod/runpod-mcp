@@ -23,6 +23,15 @@ export const MAX_LIST_LIMIT = 100;
 // docs/pagination.md compares it with MCP clients' limits on a tool result.
 export const PAGE_BUDGET_BYTES = 24_000;
 
+// MCP_PAGE_BUDGET_BYTES sets the budget, lower or higher; anything but a plain positive integer keeps the default.
+export function pageBudgetBytes(
+  value: string | undefined = process.env.MCP_PAGE_BUDGET_BYTES
+): number {
+  const text = value?.trim() ?? '';
+  const bytes = /^\d+$/.test(text) ? Number(text) : 0;
+  return Number.isSafeInteger(bytes) && bytes > 0 ? bytes : PAGE_BUDGET_BYTES;
+}
+
 // The list arguments every list tool takes. A list can set its own default
 // page size (the small catalogs return whole by default); the rest use 20.
 export const listPaginationProperties = (
@@ -183,12 +192,12 @@ const resultBytes = (value: unknown): number =>
 // The most rows from the front of `rows` whose page fits the budget; at
 // least one, so a single oversized row still moves the list on.
 function fittingRows<T>(rows: T[], build: (page: T[]) => unknown): number {
+  const budget = pageBudgetBytes();
   let low = Math.min(1, rows.length);
   let high = rows.length;
   while (low < high) {
     const middle = Math.ceil((low + high) / 2);
-    if (resultBytes(build(rows.slice(0, middle))) <= PAGE_BUDGET_BYTES)
-      low = middle;
+    if (resultBytes(build(rows.slice(0, middle))) <= budget) low = middle;
     else high = middle - 1;
   }
   return low;

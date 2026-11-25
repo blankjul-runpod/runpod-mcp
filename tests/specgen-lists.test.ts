@@ -16,9 +16,12 @@ import {
   DEFAULT_LIST_LIMIT,
   MAX_LIST_LIMIT,
   PAGE_BUDGET_BYTES,
+  pageBudgetBytes,
   pageInMemory,
   type Pagination,
 } from '#src/specgen/pagination';
+
+delete process.env.MCP_PAGE_BUDGET_BYTES; // a caller's own setting must not change what these tests expect
 
 // ---------------------------------------------------------------- surface
 
@@ -219,6 +222,62 @@ test('a page is measured as sent, after secret env values are redacted', () => {
     JSON.stringify(redactSecretEnv(result.payload), null, 2)
   );
   assert.ok(sent <= PAGE_BUDGET_BYTES, `sent ${sent} B`);
+});
+
+function withBudget<T>(value: string, run: () => T): T {
+  const saved = process.env.MCP_PAGE_BUDGET_BYTES;
+  process.env.MCP_PAGE_BUDGET_BYTES = value;
+  try {
+    return run();
+  } finally {
+    if (saved === undefined) delete process.env.MCP_PAGE_BUDGET_BYTES;
+    else process.env.MCP_PAGE_BUDGET_BYTES = saved;
+  }
+}
+
+test('MCP_PAGE_BUDGET_BYTES sets the budget either way; anything else keeps the default', () => {
+  const notPlain = [undefined, '', 'abc', '0', '-5', '1.5', 'NaN', '1e3'];
+  for (const bad of [...notPlain, '0x10', '+5', '1_000'])
+    assert.equal(pageBudgetBytes(bad), PAGE_BUDGET_BYTES, `${bad}`);
+  assert.equal(pageBudgetBytes('9'.repeat(400)), PAGE_BUDGET_BYTES, 'not safe');
+  assert.equal(pageBudgetBytes('99999'), 99999, 'higher than the default');
+  assert.equal(pageBudgetBytes(' 4000 '), 4000);
+
+  const items = rows(200, () => 'y'.repeat(100));
+  const first = withBudget('4000', () => memoryPage(items, { limit: 100 }));
+  assert.ok(bytes(first) <= 4000, `page of ${bytes(first)} B`);
+  assert.ok(first.rows.length < 100);
+  // The cursor must not depend on the budget: change it on every page and still see each row once.
+  let cursor: string | undefined;
+  let total = 0;
+  for (let n = 0; ; n++) {
+    const page = withBudget(n % 2 ? '2500' : '4000', () =>
+      memoryPage(items, { limit: 100, cursor })
+    );
+    total += page.rows.length;
+    if (!page.pagination.hasNextPage) break;
+    cursor = page.pagination.nextCursor as string;
+  }
+  assert.equal(total, items.length);
+});
+
+test('a higher budget holds more rows than the default', () => {
+  const items = rows(100, () => 'w'.repeat(1000));
+  const byDefault = memoryPage(items, { limit: 100 }).rows.length;
+  assert.ok(byDefault < 100);
+  const raised = withBudget('500000', () => memoryPage(items, { limit: 100 }));
+  assert.equal(raised.rows.length, 100);
+});
+
+test('a page of exactly the budget fits; one byte less does not', () => {
+  const items = rows(50, () => 'z'.repeat(60));
+  const size = bytes(memoryPage(items, { limit: 10 }));
+  withBudget(String(size), () =>
+    assert.equal(memoryPage(items, { limit: 10 }).rows.length, 10)
+  );
+  withBudget(String(size - 1), () =>
+    assert.ok(memoryPage(items, { limit: 10 }).rows.length < 10)
+  );
 });
 
 test('a single row larger than the budget is still returned on its own', async () => {
