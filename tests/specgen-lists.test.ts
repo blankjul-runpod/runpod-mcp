@@ -235,11 +235,12 @@ function withBudget<T>(value: string, run: () => T): T {
   }
 }
 
-test('MCP_PAGE_BUDGET_BYTES lowers the budget; anything else keeps the default', () => {
+test('MCP_PAGE_BUDGET_BYTES sets the budget either way; anything else keeps the default', () => {
   const notPlain = [undefined, '', 'abc', '0', '-5', '1.5', 'NaN', '1e3'];
   for (const bad of [...notPlain, '0x10', '+5', '1_000'])
     assert.equal(pageBudgetBytes(bad), PAGE_BUDGET_BYTES, `${bad}`);
-  assert.equal(pageBudgetBytes('99999'), PAGE_BUDGET_BYTES, 'capped');
+  assert.equal(pageBudgetBytes('9'.repeat(400)), PAGE_BUDGET_BYTES, 'not safe');
+  assert.equal(pageBudgetBytes('99999'), 99999, 'higher than the default');
   assert.equal(pageBudgetBytes(' 4000 '), 4000);
 
   const items = rows(200, () => 'y'.repeat(100));
@@ -258,6 +259,14 @@ test('MCP_PAGE_BUDGET_BYTES lowers the budget; anything else keeps the default',
     cursor = page.pagination.nextCursor as string;
   }
   assert.equal(total, items.length);
+});
+
+test('a higher budget holds more rows than the default', () => {
+  const items = rows(100, () => 'w'.repeat(1000));
+  const byDefault = memoryPage(items, { limit: 100 }).rows.length;
+  assert.ok(byDefault < 100);
+  const raised = withBudget('500000', () => memoryPage(items, { limit: 100 }));
+  assert.equal(raised.rows.length, 100);
 });
 
 test('a page of exactly the budget fits; one byte less does not', () => {

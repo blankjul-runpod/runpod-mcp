@@ -23,13 +23,13 @@ export const MAX_LIST_LIMIT = 100;
 // docs/pagination.md compares it with MCP clients' limits on a tool result.
 export const PAGE_BUDGET_BYTES = 24_000;
 
-// MCP_PAGE_BUDGET_BYTES lowers the budget; anything but a plain positive integer keeps the default, and more than it is capped.
+// MCP_PAGE_BUDGET_BYTES sets the budget, lower or higher; anything but a plain positive integer keeps the default.
 export function pageBudgetBytes(
   value: string | undefined = process.env.MCP_PAGE_BUDGET_BYTES
 ): number {
   const text = value?.trim() ?? '';
   const bytes = /^\d+$/.test(text) ? Number(text) : 0;
-  return bytes > 0 ? Math.min(bytes, PAGE_BUDGET_BYTES) : PAGE_BUDGET_BYTES;
+  return Number.isSafeInteger(bytes) && bytes > 0 ? bytes : PAGE_BUDGET_BYTES;
 }
 
 // The list arguments every list tool takes. A list can set its own default
