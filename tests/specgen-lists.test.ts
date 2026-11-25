@@ -16,6 +16,7 @@ import {
   DEFAULT_LIST_LIMIT,
   MAX_LIST_LIMIT,
   PAGE_BUDGET_BYTES,
+  pageBudgetBytes,
   pageInMemory,
   type Pagination,
 } from '#src/specgen/pagination';
@@ -219,6 +220,33 @@ test('a page is measured as sent, after secret env values are redacted', () => {
     JSON.stringify(redactSecretEnv(result.payload), null, 2)
   );
   assert.ok(sent <= PAGE_BUDGET_BYTES, `sent ${sent} B`);
+});
+
+test('MCP_PAGE_BUDGET_BYTES lowers the budget; a bad value keeps the default', async () => {
+  for (const bad of [undefined, '', 'abc', '0', '-5', '1.5', 'NaN'])
+    assert.equal(pageBudgetBytes(bad), PAGE_BUDGET_BYTES, `${bad}`);
+  assert.equal(pageBudgetBytes(' 4000 '), 4000);
+
+  const items = rows(200, () => 'y'.repeat(100));
+  const saved = process.env.MCP_PAGE_BUDGET_BYTES;
+  process.env.MCP_PAGE_BUDGET_BYTES = '4000';
+  try {
+    const first = memoryPage(items, { limit: 100 });
+    assert.ok(bytes(first) <= 4000, `page of ${bytes(first)} B`);
+    assert.ok(first.rows.length < 100);
+    let cursor: string | undefined;
+    let total = 0;
+    for (;;) {
+      const page = memoryPage(items, { limit: 100, cursor });
+      total += page.rows.length;
+      if (!page.pagination.hasNextPage) break;
+      cursor = page.pagination.nextCursor as string;
+    }
+    assert.equal(total, items.length);
+  } finally {
+    if (saved === undefined) delete process.env.MCP_PAGE_BUDGET_BYTES;
+    else process.env.MCP_PAGE_BUDGET_BYTES = saved;
+  }
 });
 
 test('a single row larger than the budget is still returned on its own', async () => {
